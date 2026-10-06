@@ -1,11 +1,17 @@
 import os
 import io
+import json
+import streamlit as st
+
 from googleapiclient.http import (
     MediaIoBaseUpload,
     MediaIoBaseDownload
 )
+
 from google.oauth2.credentials import Credentials
+
 from google_auth_oauthlib.flow import InstalledAppFlow
+
 from google.auth.transport.requests import Request
 
 
@@ -14,26 +20,65 @@ SCOPES = [
 ]
 
 
+# -----------------------------
+# Google Drive Authentication
+# -----------------------------
+
 def get_drive_service():
 
     creds = None
 
-    if os.path.exists("token.json"):
+    # ---------------------------------
+    # Streamlit Cloud
+    # ---------------------------------
+
+    if "google_token" in st.secrets:
+
+        try:
+
+            token_data = json.loads(
+                st.secrets["google_token"]
+            )
+
+            creds = Credentials.from_authorized_user_info(
+                token_data,
+                SCOPES
+            )
+
+        except Exception as e:
+
+            raise Exception(
+                f"Unable to load Google Drive credentials: {e}"
+            )
+
+    # ---------------------------------
+    # Local computer
+    # ---------------------------------
+
+    elif os.path.exists("token.json"):
 
         creds = Credentials.from_authorized_user_file(
             "token.json",
             SCOPES
         )
 
+    # ---------------------------------
+    # Refresh credentials
+    # ---------------------------------
+
+    if creds and creds.expired and creds.refresh_token:
+
+        creds.refresh(
+            Request()
+        )
+
+    # ---------------------------------
+    # First-time local authentication
+    # ---------------------------------
+
     if not creds or not creds.valid:
 
-        if creds and creds.expired and creds.refresh_token:
-
-            creds.refresh(
-                Request()
-            )
-
-        else:
+        if os.path.exists("credentials.json"):
 
             flow = InstalledAppFlow.from_client_secrets_file(
                 "credentials.json",
@@ -44,14 +89,27 @@ def get_drive_service():
                 port=0
             )
 
-        with open(
-            "token.json",
-            "w"
-        ) as token:
+            # Save token only on local computer
 
-            token.write(
-                creds.to_json()
+            with open(
+                "token.json",
+                "w"
+            ) as token:
+
+                token.write(
+                    creds.to_json()
+                )
+
+        else:
+
+            raise Exception(
+                "Google Drive is not connected. "
+                "Please configure Google Drive authentication."
             )
+
+    # ---------------------------------
+    # Create Drive service
+    # ---------------------------------
 
     from googleapiclient.discovery import build
 
@@ -62,6 +120,11 @@ def get_drive_service():
     )
 
     return service
+
+
+# -----------------------------
+# Upload Memory
+# -----------------------------
 
 def upload_memory(
     service,
@@ -120,6 +183,11 @@ def upload_memory(
 
     return uploaded_file
 
+
+# -----------------------------
+# Get SAFAR Memories
+# -----------------------------
+
 def get_safar_memories(service):
 
     results = service.files().list(
@@ -155,6 +223,10 @@ def get_safar_memories(service):
     )
 
 
+# -----------------------------
+# Get Memory Image
+# -----------------------------
+
 def get_memory_bytes(
     service,
     file_id
@@ -180,6 +252,11 @@ def get_memory_bytes(
     file_data.seek(0)
 
     return file_data.read()
+
+
+# -----------------------------
+# Delete Memory
+# -----------------------------
 
 def delete_memory(
     service,
